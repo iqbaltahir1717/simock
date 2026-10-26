@@ -1,8 +1,9 @@
 // Browser-side test harness. Runs in real Chromium (same engine family as Figma's plugin
 // UI) via Playwright: harness/run.mjs loads this bundle and calls window.simock.*.
 
-import { writePsdUint8Array, type Psd } from 'ag-psd';
-import { NativeRenderer, Compositor, createSurface, encodeCanvas } from '../src/core/render/native/compositor';
+import { readPsd, writePsdUint8Array, type Psd } from 'ag-psd';
+import { setGaussianCalibration } from '../src/core/psd/features';
+import { NativeRenderer, Compositor, compareCanvases, createSurface, encodeCanvas } from '../src/core/render/native/compositor';
 import { warpInto, mapContentPoint } from '../src/core/render/native/warp';
 import { quadBounds, type Quad } from '../src/core/geometry';
 import { DEFAULT_PLACEMENT, type Placement } from '../src/core/placement';
@@ -196,10 +197,42 @@ export async function runRealPsd(url: string, maxCandidates = 3) {
   const self = r.selfCheck();
   if (self) files['selfcheck-diff.png'] = await b64(await encodeCanvas(self.diff, 'png', 1, '#fff'));
   if (r.psd!.canvas) files['photoshop-composite.png'] = await b64(await encodeCanvas(r.psd!.canvas, 'png', 1, '#fff'));
+  // End-to-end replacement fidelity: replace the Smart Object with its own original contents
+  // through our pipeline and compare with Photoshop's composite. Also calibrates blur radius.
+  let replacement: unknown = null;
+  const first = insp.candidates[0];
+  const lf = first && r.psd!.linkedFiles?.find((f) => f.id === first.contentId);
+  if (lf?.data && r.psd!.canvas) {
+    // The embedded file's stored composite can be stale (it is blank in the MacBook sample),
+    // so render its layers with our own compositor.
+    const inner = readPsd(lf.data.slice().buffer, { skipThumbnail: true, skipLinkedFilesData: true });
+    const innerCanvas = inner.children?.length ? new Compositor(inner).render(1) : inner.canvas;
+    if (innerCanvas) {
+      inner.canvas = innerCanvas;
+      const own: DesignSource = { width: inner.width, height: inner.height, async getImage() { return innerCanvas; } };
+      const placement: Placement = { ...DEFAULT_PLACEMENT, mode: 'stretch', lockAspect: false };
+      const perSigma: Record<string, number> = {};
+      for (const k of [0.5, 0.75, 1, 1.25]) {
+        setGaussianCalibration(k);
+        const res = await r.render({ target: first.ref, design: own, placement, scale: 1 });
+        const f = compareCanvases(r.psd!.canvas, res.canvas!);
+        perSigma[k] = +f.meanAbsError.toFixed(4);
+        if (k === 1) {
+          replacement = { contentSize: `${inner.width}x${inner.height}`, meanAbsError: f.meanAbsError, pctPixelsOver8: f.pctPixelsOver8, pctPixelsOver32: f.pctPixelsOver32 };
+          files['replacement-diff.png'] = await b64(await encodeCanvas(f.diff, 'png', 1, '#fff'));
+          files['replacement-render.png'] = await b64(await encodeCanvas(res.canvas!, 'png', 1, '#fff'));
+          files['replacement-content.png'] = await b64(await encodeCanvas(inner.canvas, 'png', 1, '#fff'));
+        }
+      }
+      setGaussianCalibration(1);
+      (replacement as Record<string, unknown>).maeByBlurSigmaPerRadius = perSigma;
+    }
+  }
   const renders: unknown[] = [];
   for (const cand of insp.candidates.slice(0, maxCandidates)) {
     const design = patternDesign(cand.width, cand.height);
-    for (const [scale, format] of [[1, 'png'], [1, 'jpeg'], [0.5, 'png']] as const) {
+    const big = insp.candidates.indexOf(cand) === 0 ? ([[2, 'jpeg'], [4, 'jpeg']] as const) : [];
+    for (const [scale, format] of [[1, 'png'], [1, 'jpeg'], [0.5, 'png'], ...big] as const) {
       try {
         const res = await r.render({ target: cand.ref, design, placement: { ...DEFAULT_PLACEMENT, mode: 'fill' }, scale, encode: { format, scale, jpegQuality: 0.9, jpegBackground: '#ffffff' } });
         const name = `real-${insp.candidates.indexOf(cand)}-${scale}x.${format === 'png' ? 'png' : 'jpg'}`;
@@ -212,7 +245,7 @@ export async function runRealPsd(url: string, maxCandidates = 3) {
   }
   const { diff, ...selfNumbers } = self ?? ({} as Record<string, unknown>);
   void diff;
-  return { sniff, parseMs: Math.round(parseMs), inspection: insp, selfCheck: self ? selfNumbers : null, renders, files };
+  return { sniff, parseMs: Math.round(parseMs), inspection: insp, selfCheck: self ? selfNumbers : null, replacement, renders, files };
 }
 
 declare global { interface Window { simock: unknown } }

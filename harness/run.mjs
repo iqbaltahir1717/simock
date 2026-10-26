@@ -63,7 +63,7 @@ for (let i = 0; i < realPaths.length; i++) {
   r.totalMs = Date.now() - t;
   report.real.push(r);
   console.log(`\nReal PSD: ${r.file}`);
-  console.log(JSON.stringify({ sniff: r.sniff, parseMs: r.parseMs, selfCheck: r.selfCheck, candidates: r.inspection?.candidates?.map((c) => ({ name: c.name, size: `${c.width}x${c.height}`, perspective: c.perspective, warp: c.warpStyle, issues: c.issues.map((x) => x.code) })), docIssues: r.inspection?.issues, renders: r.renders }, null, 2));
+  console.log(JSON.stringify({ sniff: r.sniff, parseMs: r.parseMs, selfCheck: r.selfCheck, replacement: r.replacement, candidates: r.inspection?.candidates?.map((c) => ({ name: c.name, size: `${c.width}x${c.height}`, perspective: c.perspective, warp: c.warpStyle, issues: c.issues.map((x) => x.code) })), docIssues: r.inspection?.issues, renders: r.renders }, null, 2));
 }
 await writeFile(`${outDir}/report.json`, JSON.stringify(report, null, 2));
 await browser.close();

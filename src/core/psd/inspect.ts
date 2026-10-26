@@ -4,6 +4,7 @@
 
 import { readPsd, type Layer, type Psd, type BlendMode, type Warp } from 'ag-psd';
 import { isAffineQuad, quadFromTransform, type Quad } from '../geometry';
+import { SUPPORTED_ADJUSTMENTS, enabledEffects, smartFilterPlan, unsupportedEffects } from './features';
 
 export type Severity = 'info' | 'warn' | 'block';
 export interface Issue { severity: Severity; code: string; message: string; layer?: string }
@@ -13,6 +14,8 @@ export interface LayerRef { layerId?: number; path: string[]; indexPath: number[
 
 export interface SmartObjectCandidate {
   ref: LayerRef;
+  /** Smart Object contents id; layers sharing it are instances of one placeholder. */
+  contentId: string;
   name: string;
   /** Smart Object document size in pixels (the placeholder's own coordinate system). */
   width: number;
@@ -61,17 +64,6 @@ export function loadPsd(buffer: ArrayBuffer, withPixels = true): Psd {
   });
 }
 
-export function hasEnabledEffects(layer: Layer): boolean {
-  const fx = layer.effects as Record<string, unknown> | undefined;
-  if (!fx || fx.disabled) return false;
-  for (const [key, value] of Object.entries(fx)) {
-    if (key === 'disabled' || key === 'scale') continue;
-    const list = Array.isArray(value) ? value : [value];
-    if (list.some((e) => e && typeof e === 'object' && (e as { enabled?: boolean }).enabled !== false)) return true;
-  }
-  return false;
-}
-
 /** Photoshop often stores an untouched warp: a regular mesh over the bounds, or a preset with value 0. */
 export function isIdentityWarp(w: Warp | undefined): boolean {
   if (!w || !w.style || w.style === 'none') return true;
@@ -98,6 +90,13 @@ export function walk(layers: Layer[] | undefined, fn: (l: Layer, path: string[],
   });
 }
 
+/** All layers whose Smart Object contents are the same embedded/linked file (Photoshop updates them together). */
+export function smartObjectInstances(psd: Psd, placedId: string): Layer[] {
+  const out: Layer[] = [];
+  walk(psd.children, (l) => { if (l.placedLayer?.id === placedId) out.push(l); });
+  return out;
+}
+
 export function findLayer(psd: Psd, ref: LayerRef): Layer | undefined {
   let byId: Layer | undefined, byPath: Layer | undefined;
   walk(psd.children, (l, path) => {
@@ -109,6 +108,12 @@ export function findLayer(psd: Psd, ref: LayerRef): Layer | undefined {
   let node: Layer | undefined; let list = psd.children;
   for (const i of ref.indexPath) { node = list?.[i]; list = node?.children; }
   return node;
+}
+
+function quadArea(q: Quad) {
+  let a = 0;
+  for (let i = 0; i < 4; i++) { const p = q[i], n = q[(i + 1) % 4]; a += p.x * n.y - n.x * p.y; }
+  return Math.abs(a) / 2;
 }
 
 function embeddedHasSmartObjects(data: Uint8Array | undefined): boolean {
@@ -136,8 +141,12 @@ export function inspectPsd(psd: Psd): MockupInspection {
     layerCount++;
     const name = path.join(' / ');
     const visible = !l.hidden;
-    if (visible && l.adjustment) issues.push({ severity: 'warn', code: 'adjustment', layer: name, message: `Adjustment layer (${l.adjustment.type}) is not reproduced by the native renderer.` });
-    if (visible && hasEnabledEffects(l) && !l.placedLayer) issues.push({ severity: 'warn', code: 'effects', layer: name, message: 'Layer effects (shadows, glows, strokes…) are not reproduced by the native renderer.' });
+    if (visible && l.adjustment) {
+      if (SUPPORTED_ADJUSTMENTS.has(l.adjustment.type)) issues.push({ severity: 'info', code: 'adjustment-ok', layer: name, message: `Adjustment layer (${l.adjustment.type}) is applied by the native renderer.` });
+      else issues.push({ severity: 'warn', code: 'adjustment', layer: name, message: `Adjustment layer (${l.adjustment.type}) is not reproduced by the native renderer.` });
+    }
+    const badFx = unsupportedEffects(l);
+    if (visible && badFx.length && !l.placedLayer) issues.push({ severity: 'warn', code: 'effects', layer: name, message: `Layer effects not reproduced by the native renderer: ${badFx.join(', ')}.` });
     if (visible && l.blendMode && !CANVAS_BLEND[l.blendMode]) issues.push({ severity: 'warn', code: 'blend', layer: name, message: `Blend mode "${l.blendMode}" is approximated as normal.` });
     else if (visible && l.blendMode && APPROX_BLEND.has(l.blendMode)) issues.push({ severity: 'info', code: 'blend-approx', layer: name, message: `Blend mode "${l.blendMode}" uses a browser formula that differs slightly from Photoshop.` });
     if (visible && l.vectorMask && !l.vectorFill) issues.push({ severity: 'warn', code: 'vector-mask', layer: name, message: 'Vector mask is ignored by the native renderer.' });
@@ -156,8 +165,13 @@ export function inspectPsd(psd: Psd): MockupInspection {
     if (nested) soIssues.push({ severity: 'warn', code: 'nested', message: 'Contains nested Smart Objects. Only this outer object is replaced.' });
     const warpStyle = isIdentityWarp(pl.warp) ? undefined : pl.warp?.style;
     if (warpStyle) soIssues.push({ severity: 'warn', code: 'warp', message: `Warp "${warpStyle}" is approximated with a perspective transform by the native renderer.` });
-    if (pl.filter) soIssues.push({ severity: 'warn', code: 'smart-filter', message: 'Smart filters are applied to the original content only. The native renderer cannot re-apply them to your design.' });
-    if (hasEnabledEffects(l)) soIssues.push({ severity: 'warn', code: 'so-effects', message: 'Layer effects on the placeholder are not reproduced by the native renderer.' });
+    const sf = smartFilterPlan(pl.filter);
+    if (sf.unsupported.length) soIssues.push({ severity: 'warn', code: 'smart-filter', message: `Smart filters not re-applied by the native renderer: ${sf.unsupported.join(', ')}.` });
+    else if (sf.blurRadius) soIssues.push({ severity: 'info', code: 'smart-filter-ok', message: `Gaussian Blur smart filter (${sf.blurRadius}px) is re-applied natively.` });
+    const shared = smartObjectInstances(psd, pl.id).filter((x) => x !== l).map((x) => x.name ?? '');
+    if (shared.length) soIssues.push({ severity: 'info', code: 'shared', message: `Shares its contents with: ${shared.join(', ')}. Replacing one updates all of them, as in Photoshop.` });
+    if (unsupportedEffects(l).length) soIssues.push({ severity: 'warn', code: 'so-effects', message: `Layer effects on the placeholder not reproduced by the native renderer: ${unsupportedEffects(l).join(', ')}.` });
+    else if (enabledEffects(l).length) soIssues.push({ severity: 'info', code: 'so-effects-ok', message: `Placeholder effects applied natively: ${enabledEffects(l).join(', ')}.` });
     if (pl.type === 'vector') soIssues.push({ severity: 'info', code: 'vector-so', message: 'Vector Smart Object (e.g. from Illustrator). Replacement content is raster.' });
     if (!pl.width || !pl.height) soIssues.push({ severity: 'block', code: 'so-size', message: 'Smart Object size is missing.' });
 
@@ -165,13 +179,20 @@ export function inspectPsd(psd: Psd): MockupInspection {
     for (let j = i + 1; j < siblings.length && siblings[j].clipping; j++) clipped++;
 
     candidates.push({
-      ref: { layerId: l.id, path, indexPath: idx }, name: l.name ?? 'Smart Object',
+      ref: { layerId: l.id, path, indexPath: idx }, contentId: pl.id, name: l.name ?? 'Smart Object',
       width: pl.width ?? 0, height: pl.height ?? 0, quad,
       perspective: !isAffineQuad(quad), warpStyle, linked, nested, hidden: !!l.hidden, clippedLayersAbove: clipped, issues: soIssues,
     });
   });
 
-  // Larger, visible placeholders first: usually the screen.
-  candidates.sort((a, b) => Number(a.hidden) - Number(b.hidden) || b.width * b.height - a.width * a.height);
-  return { width: psd.width, height: psd.height, colorMode, bitsPerChannel: bits, hasComposite: !!psd.canvas, layerCount, candidates, issues };
+  // One entry per Smart Object contents: prefer the visible instance without smart filters
+  // (e.g. the screen rather than its blurred reflection), then larger ones first.
+  const rank = (c: SmartObjectCandidate) => Number(c.hidden) * 2 + Number(c.issues.some((i) => i.code.startsWith('smart-filter')));
+  const best = new Map<string, SmartObjectCandidate>();
+  for (const c of candidates) {
+    const cur = best.get(c.contentId);
+    if (!cur || rank(c) < rank(cur) || (rank(c) === rank(cur) && quadArea(c.quad) > quadArea(cur.quad))) best.set(c.contentId, c);
+  }
+  const unique = [...best.values()].sort((a, b) => Number(a.hidden) - Number(b.hidden) || quadArea(b.quad) - quadArea(a.quad));
+  return { width: psd.width, height: psd.height, colorMode, bitsPerChannel: bits, hasComposite: !!psd.canvas, layerCount, candidates: unique, issues };
 }

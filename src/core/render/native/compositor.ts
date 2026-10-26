@@ -8,8 +8,9 @@ import type { Layer, Psd } from 'ag-psd';
 import { quadFromTransform, quadScaleFactor, scaleQuad } from '../../geometry';
 import { checkOutputSize, mimeFor, outputSize } from '../../export';
 import { designExportScale, placementMatrix } from '../../placement';
-import { CANVAS_BLEND, findLayer, inspectPsd, isGroup, loadPsd, type MockupInspection } from '../../psd/inspect';
+import { CANVAS_BLEND, findLayer, inspectPsd, isGroup, loadPsd, smartObjectInstances, type MockupInspection } from '../../psd/inspect';
 import type { MockupRenderer, RenderRequest, RenderResult } from '../types';
+import { GAUSSIAN_SIGMA_PER_RADIUS, SUPPORTED_ADJUSTMENTS, SUPPORTED_EFFECTS, enabledEffects, levelsLuts, smartFilterPlan } from '../../psd/features';
 import { maxTextureSize, warpInto } from './warp';
 
 type Ctx = CanvasRenderingContext2D;
@@ -29,7 +30,8 @@ function release(ctx: Ctx) { ctx.canvas.width = 0; ctx.canvas.height = 0; }
 const opacityOf = (l: Layer) => (l.opacity ?? 1) * (l.fillOpacity ?? 1);
 const blendOf = (l: Layer): GlobalCompositeOperation => (l.blendMode && CANVAS_BLEND[l.blendMode]) || 'source-over';
 
-interface Override { layer: Layer; draw: (ctx: Ctx) => void }
+/** Layers whose pixels are replaced at render time (every instance of the target Smart Object). */
+type Override = Map<Layer, (ctx: Ctx) => void>;
 
 export class Compositor {
   private maskCache = new WeakMap<Layer, HTMLCanvasElement>();
@@ -48,16 +50,22 @@ export class Compositor {
       if (l.clipping && i > 0) continue; // drawn with its base below
       const clipped: Layer[] = [];
       for (let j = i + 1; j < layers.length && layers[j].clipping; j++) clipped.push(layers[j]);
-      if (l.hidden || l.adjustment) continue;
-      const visibleClipped = clipped.filter((c) => !c.hidden && !c.adjustment);
+      if (l.hidden) continue;
+      if (l.adjustment) {
+        // Adjustment layers act on everything already composited below them in this stack.
+        if (SUPPORTED_ADJUSTMENTS.has(l.adjustment.type)) this.applyAdjustment(ctx, l);
+        continue;
+      }
+      const visibleClipped = clipped.filter((c) => !c.hidden);
       const hasMask = !!l.mask && !l.mask.disabled && !!(l.mask.canvas || l.mask.defaultColor === 0);
       const group = isGroup(l);
+      const effects = enabledEffects(l).filter((e) => SUPPORTED_EFFECTS.has(e));
 
       if (group && l.blendMode === 'pass through' && opacityOf(l) >= 1 && !hasMask && !visibleClipped.length) {
         this.drawLayers(ctx, l.children!, s, ov);
         continue;
       }
-      if (!group && !hasMask && !visibleClipped.length) {
+      if (!group && !hasMask && !visibleClipped.length && !effects.length) {
         ctx.save();
         ctx.globalAlpha = opacityOf(l);
         ctx.globalCompositeOperation = blendOf(l);
@@ -70,12 +78,17 @@ export class Compositor {
       const base = createSurface(W, H);
       if (group) this.drawLayers(base, l.children!, s, ov);
       else this.drawContent(base, l, s, ov);
+      if (effects.length) this.applyEffects(base, l);
       if (hasMask) this.applyMask(base, l);
 
       if (visibleClipped.length) {
         const baseAlpha = createSurface(W, H);
         baseAlpha.drawImage(base.canvas, 0, 0);
         for (const c of visibleClipped) {
+          if (c.adjustment) {
+            if (SUPPORTED_ADJUSTMENTS.has(c.adjustment.type)) this.applyAdjustment(base, c, baseAlpha.canvas);
+            continue;
+          }
           const layer = createSurface(W, H);
           if (isGroup(c)) this.drawLayers(layer, c.children!, s, ov); else this.drawContent(layer, c, s, ov);
           if (c.mask && !c.mask.disabled) this.applyMask(layer, c);
@@ -92,7 +105,9 @@ export class Compositor {
       }
 
       ctx.save();
-      ctx.globalAlpha = opacityOf(l);
+      // Fill opacity affects the layer's pixels but not its effects; with supported effects we
+      // approximate by using layer opacity only.
+      ctx.globalAlpha = effects.length ? (l.opacity ?? 1) : opacityOf(l);
       ctx.globalCompositeOperation = blendOf(l);
       ctx.drawImage(base.canvas, 0, 0);
       ctx.restore();
@@ -100,8 +115,61 @@ export class Compositor {
     }
   }
 
+  /** Applies a supported adjustment layer to the pixels already in `ctx`, through its mask and opacity. */
+  private applyAdjustment(ctx: Ctx, l: Layer, clip?: HTMLCanvasElement) {
+    const adj = l.adjustment!;
+    const W = ctx.canvas.width, H = ctx.canvas.height;
+    const out = createSurface(W, H);
+    out.drawImage(ctx.canvas, 0, 0);
+    if (adj.type === 'levels') {
+      const [r, g, b] = levelsLuts(adj);
+      // Process in strips to bound peak memory on large outputs.
+      const strip = Math.max(1, Math.floor(4_000_000 / W));
+      for (let y = 0; y < H; y += strip) {
+        const h = Math.min(strip, H - y);
+        const img = out.getImageData(0, y, W, h);
+        const d = img.data;
+        for (let p = 0; p < d.length; p += 4) {
+          if (!d[p + 3]) continue;
+          d[p] = r[d[p]]; d[p + 1] = g[d[p + 1]]; d[p + 2] = b[d[p + 2]];
+        }
+        out.putImageData(img, 0, y);
+      }
+    }
+    if (l.mask && !l.mask.disabled) this.applyMask(out, l);
+    if (clip) { out.globalCompositeOperation = 'destination-in'; out.drawImage(clip, 0, 0); }
+    ctx.save();
+    ctx.globalAlpha = opacityOf(l);
+    ctx.globalCompositeOperation = blendOf(l);
+    ctx.drawImage(out.canvas, 0, 0);
+    ctx.restore();
+    release(out);
+  }
+
+  /** Supported layer effects, applied to the layer's own pixels in `ctx`. */
+  private applyEffects(ctx: Ctx, l: Layer) {
+    const fx = l.effects!;
+    for (const fill of fx.solidFill ?? []) {
+      if (fill.enabled === false || !fill.color || !('r' in fill.color)) continue;
+      const W = ctx.canvas.width, H = ctx.canvas.height;
+      const ov = createSurface(W, H);
+      const c = fill.color as { r: number; g: number; b: number };
+      ov.fillStyle = `rgb(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)})`;
+      ov.fillRect(0, 0, W, H);
+      ov.globalCompositeOperation = 'destination-in';
+      ov.drawImage(ctx.canvas, 0, 0);
+      ctx.save();
+      ctx.globalAlpha = fill.opacity ?? 1;
+      ctx.globalCompositeOperation = (fill.blendMode && CANVAS_BLEND[fill.blendMode]) || 'source-over';
+      ctx.drawImage(ov.canvas, 0, 0);
+      ctx.restore();
+      release(ov);
+    }
+  }
+
   private drawContent(ctx: Ctx, l: Layer, s: number, ov?: Override) {
-    if (ov && l === ov.layer) { ov.draw(ctx); return; }
+    const replace = ov?.get(l);
+    if (replace) { replace(ctx); return; }
     if (!l.canvas) return;
     ctx.drawImage(l.canvas, (l.left ?? 0) * s, (l.top ?? 0) * s, l.canvas.width * s, l.canvas.height * s);
   }
@@ -231,7 +299,28 @@ export class NativeRenderer implements MockupRenderer {
     content.setTransform(k * M[0] / ix, k * M[1] / ix, k * M[2] / iy, k * M[3] / iy, k * M[4], k * M[5]);
     content.drawImage(img, 0, 0);
 
-    const canvas = comp.render(req.scale, { layer, draw: (ctx) => warpInto(ctx, content.canvas, scaleQuad(quad, req.scale)) });
+    // Every layer that shares this Smart Object's contents is updated, as in Photoshop.
+    const overrides: Override = new Map();
+    for (const inst of smartObjectInstances(psd, pl.id)) {
+      const ipl = inst.placedLayer!;
+      const iquad = scaleQuad(quadFromTransform(ipl.nonAffineTransform ?? ipl.transform), req.scale);
+      const blur = smartFilterPlan(ipl.filter).blurRadius * GAUSSIAN_SIGMA_PER_RADIUS * req.scale;
+      overrides.set(inst, (ctx) => {
+        if (!blur) { warpInto(ctx, content.canvas, iquad); return; }
+        const tmp = createSurface(ctx.canvas.width, ctx.canvas.height);
+        warpInto(tmp, content.canvas, iquad);
+        ctx.save();
+        ctx.filter = `blur(${blur}px)`;
+        ctx.drawImage(tmp.canvas, 0, 0);
+        ctx.restore();
+        release(tmp);
+      });
+      if (inst !== layer) {
+        const extra = smartFilterPlan(ipl.filter).unsupported;
+        warnings.push(`"${inst.name}" shares this placeholder and is updated too${extra.length ? `, but its smart filters (${extra.join(', ')}) are not re-applied` : ''}.`);
+      }
+    }
+    const canvas = comp.render(req.scale, overrides);
     release(content);
 
     let blob: Blob | undefined;
