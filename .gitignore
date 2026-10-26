@@ -1,0 +1,6 @@
+node_modules/
+dist/
+harness/out/
+samples/
+*.psd
+*.psb

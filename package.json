@@ -1,0 +1,31 @@
+{
+  "name": "simock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Figma plugin that places Figma frames into your own PSD mockups.",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "harness": "node build.mjs && node harness/run.mjs",
+    "harness:photopea": "node build.mjs && node harness/photopea.mjs",
+    "ui-smoke": "node build.mjs && node harness/ui-smoke.mjs"
+  },
+  "dependencies": {
+    "ag-psd": "^33.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.142.0",
+    "@types/node": "^22.20.5",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.28.2",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

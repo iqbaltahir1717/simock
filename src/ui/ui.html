@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg: var(--figma-color-bg, #fff); --fg: var(--figma-color-text, #111); --muted: var(--figma-color-text-secondary, #6b6b6b);
+    --line: var(--figma-color-border, #e5e5e5); --accent: var(--figma-color-bg-brand, #0d99ff); --onaccent: var(--figma-color-text-onbrand, #fff);
+    --soft: var(--figma-color-bg-secondary, #f5f5f5); --danger: var(--figma-color-text-danger, #d4351c); --warn: var(--figma-color-text-warning, #a86800); --good: var(--figma-color-text-success, #14804a); }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body { font: 12px/1.4 Inter, system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  .app { display: grid; grid-template-columns: 240px 1fr 220px; height: 100%; }
+  .side { overflow: auto; padding: 12px; border-right: 1px solid var(--line); }
+  .side:last-child { border-right: 0; border-left: 1px solid var(--line); }
+  section { margin-bottom: 18px; }
+  h2 { font-size: 12px; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; }
+  h3 { font-size: 11px; margin: 10px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .muted { color: var(--muted); } .small { font-size: 11px; } .ok { color: var(--good); } .warn { color: var(--warn); }
+  .frame { display: flex; gap: 8px; align-items: center; }
+  .frame img { width: 64px; height: 64px; object-fit: contain; background: var(--soft); border-radius: 4px; }
+  .drop { display: block; border: 1px dashed var(--line); border-radius: 6px; padding: 12px; text-align: center; cursor: pointer; margin-bottom: 8px; }
+  .drop input { display: none; }
+  .row { display: flex; gap: 8px; margin: 6px 0; } .row > * { flex: 1; }
+  label { display: block; margin: 6px 0; } label input[type=range] { width: 100%; }
+  .check { display: flex; gap: 6px; align-items: center; }
+  input[type=number] { width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+  .cand { display: flex; gap: 6px; align-items: flex-start; }
+  button { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { width: 100%; background: var(--accent); color: var(--onaccent); border-color: transparent; margin-top: 8px; }
+  button.link { border: 0; padding: 0; color: var(--accent); background: none; }
+  .seg { display: flex; margin: 6px 0; } .seg button { flex: 1; border-radius: 0; text-transform: capitalize; }
+  .seg button:first-child { border-radius: 5px 0 0 5px; } .seg button:last-child { border-radius: 0 5px 5px 0; }
+  .seg button.on { background: var(--accent); color: var(--onaccent); border-color: var(--accent); }
+  .stage { position: relative; overflow: auto; background: var(--soft); }
+  .preview { min-height: 100%; display: grid; place-items: center; padding: 16px; cursor: grab; touch-action: none; }
+  .preview > div { width: 100%; display: grid; place-items: center; }
+  .preview canvas { display: block; width: 100%; height: auto; box-shadow: 0 1px 3px rgba(0,0,0,.2); background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0/16px 16px; }
+  .center { text-align: center; }
+  .busy, .error { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 8px 10px; border-radius: 6px; background: var(--bg); box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .error { color: var(--danger); } p.error { position: static; box-shadow: none; padding: 0; background: none; }
+  .warnings { position: absolute; top: 8px; right: 8px; max-width: 60%; background: var(--bg); padding: 6px 8px; border-radius: 6px; }
+  .notice { background: var(--soft); padding: 8px; border-radius: 6px; margin: 6px 0; } .notice button { margin-top: 6px; width: 100%; }
+  .issues { padding-left: 16px; margin: 6px 0; } .issues li { margin: 3px 0; } .issues .warn, .issues .block { color: var(--warn); } .issues .info { color: var(--muted); }
+  .photopea { height: 260px; border-top: 1px solid var(--line); } .photopea.hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!--SCRIPT-->
+</body>
+</html>

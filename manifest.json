@@ -1,0 +1,13 @@
+{
+  "name": "Simock (dev)",
+  "id": "simock-dev-local",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["https://www.photopea.com"],
+    "reasoning": "Optional Photopea renderer: only loaded when the user picks it and confirms the PSD will be opened inside Photopea's web app."
+  }
+}
