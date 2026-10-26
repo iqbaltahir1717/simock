@@ -21,7 +21,8 @@ Last updated: 2026-10-26 (after real PSD test). Read this first in a new session
 - [x] Tests: 12 unit tests, 24 synthetic Chromium checks, 11 UI smoke checks — all passing.
 - [x] Real PSD sample from the user (MacBook Pro mockup, 3000×2000, 39 MB): see results below. Not committed (user's licensed file); kept in project files root.
 - [x] Native renderer additions driven by the sample: Levels adjustment layers, Color Fill (solidFill) effect, shared Smart Object instances updated together, Gaussian Blur smart filter re-applied on instances, identity-warp detection, one placeholder entry per Smart Object contents.
-- [ ] Run the plugin inside Figma desktop (selection, exportAsync, download from plugin UI, clientStorage).
+- [x] Plugin runs in Figma desktop (user, 2026-10-26): PSD loads, self-check shows 100% within 8 levels, frame selection + preview work after accepting figma.com message origin (strict `source === parent` check dropped Figma's messages).
+- [ ] In Figma: confirm export download, Refresh, template save/restore (asked user).
 - [ ] Run `npm run harness:photopea` where photopea.com is reachable; also test Photopea nested inside the Figma plugin iframe.
 
 ### Phase 2: personal MVP
