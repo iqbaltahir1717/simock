@@ -10,8 +10,9 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "https://www.photopea.com"
+      "https://www.photopea.com",
+      "https://iqbaltahir1717.github.io"
     ],
-    "reasoning": "Optional Photopea renderer (only after the user opts in)."
+    "reasoning": "Optional Photopea renderer (only after the user opts in), and the plugin's own UI page at https://iqbaltahir1717.github.io which stores the mockup library on this device."
   }
 }

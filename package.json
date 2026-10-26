@@ -11,7 +11,8 @@
     "harness": "node build.mjs && node harness/run.mjs",
     "harness:photopea": "node build.mjs && node harness/photopea.mjs",
     "ui-smoke": "node build.mjs && node harness/ui-smoke.mjs",
-    "hosted-smoke": "SIMOCK_UI_URL=https://simock.test/ node build.mjs && node harness/hosted-smoke.mjs && node harness/hosted-smoke.mjs harness/out/synthetic.psd --offline && node build.mjs"
+    "hosted-smoke": "SIMOCK_UI_URL=https://simock.test/ node build.mjs && node harness/hosted-smoke.mjs && node harness/hosted-smoke.mjs harness/out/synthetic.psd --offline && node build.mjs",
+    "build:hosted": "SIMOCK_UI_URL=https://iqbaltahir1717.github.io/simock/ node build.mjs"
   },
   "dependencies": {
     "ag-psd": "^33.0.0",
