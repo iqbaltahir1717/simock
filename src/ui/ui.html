@@ -2,6 +2,15 @@
 <html>
 <head>
 <meta charset="utf-8">
+<script>
+  // Bundled copy: switch to the hosted UI (own origin, so the mockup library can use IndexedDB)
+  // when it is reachable; otherwise keep working from this bundled copy.
+  (function () {
+    var url = "%SIMOCK_UI_URL%";
+    if (!url || url.charAt(0) === "%" || location.origin !== "null") return;
+    fetch(url, { mode: "no-cors", cache: "no-store" }).then(function () { location.replace(url); }, function () {});
+  })();
+</script>
 <style>
   :root { --bg: var(--figma-color-bg, #fff); --fg: var(--figma-color-text, #111); --muted: var(--figma-color-text-secondary, #6b6b6b);
     --line: var(--figma-color-border, #e5e5e5); --accent: var(--figma-color-bg-brand, #0d99ff); --onaccent: var(--figma-color-text-onbrand, #fff);
@@ -43,6 +52,14 @@
   .notice { background: var(--soft); padding: 8px; border-radius: 6px; margin: 6px 0; } .notice button { margin-top: 6px; width: 100%; }
   .issues { padding-left: 16px; margin: 6px 0; } .issues li { margin: 3px 0; } .issues .warn, .issues .block { color: var(--warn); } .issues .info { color: var(--muted); }
   .photopea { height: 260px; border-top: 1px solid var(--line); } .photopea.hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+  .library { margin-bottom: 8px; } .search { width: 100%; padding: 5px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tile { border: 1px solid var(--line); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .tile.on { border-color: var(--accent); }
+  .thumb { padding: 0; border: 0; background: var(--soft); aspect-ratio: 3/2; display: grid; place-items: center; overflow: hidden; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .meta { display: flex; flex-direction: column; font-size: 11px; min-width: 0; } .meta .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link.danger { color: var(--danger); font-size: 11px; text-align: left; }
 </style>
 </head>
 <body>

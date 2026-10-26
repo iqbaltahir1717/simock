@@ -26,7 +26,11 @@ Last updated: 2026-10-26 (after real PSD test). Read this first in a new session
 - [ ] Run `npm run harness:photopea` where photopea.com is reachable; also test Photopea nested inside the Figma plugin iframe.
 
 ### Phase 2: personal MVP
-- [ ] Persisted local library (thumbnails + metadata in clientStorage; PSD bytes re-picked or cached where possible).
+- [x] Decision (user, 2026-10-26): local library first via hosted UI; Drive later.
+- [x] Local library: `LibraryStore` interface + IndexedDB store (metadata/thumbnail separate from file bytes), auto-add on upload, open/delete, search, persistent-storage request.
+- [x] Hosted UI mode: bundled UI redirects to `SIMOCK_UI_URL` when reachable (own origin → IndexedDB works), messages use pluginId + figma.com target; offline falls back to the bundled UI without library. GitHub Pages workflow in `.github/workflows/pages.yml`.
+- [x] Tested in a simulated Figma (Playwright routes for www.figma.com and the hosted origin): redirect, messaging, add, survive reopen, open, delete, offline fallback; also with the 39 MB MacBook PSD.
+- [ ] **Blocked on user:** GitHub repo (public for free Pages, or Pro/another static host), then set `SIMOCK_UI_URL`, rebuild zip, test in Figma desktop. Unverified in real Figma: IndexedDB in the hosted iframe and pluginId '*'.
 - [ ] Template setup flow polish (multiple placeholders, per-template defaults), parse in a Worker.
 - [ ] Preview: low-res mockup cache, faster drag (warp-only redraw).
 - [ ] Flat-template mode for EPS-derived rasters (explicitly labelled).

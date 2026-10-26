@@ -15,7 +15,16 @@ window.addEventListener('message', (e: MessageEvent) => {
   if (msg) listeners.forEach((l) => l(msg));
 });
 
-export function send(msg: UiToPlugin) { parent.postMessage({ pluginMessage: msg }, '*'); }
+declare const __PLUGIN_ID__: string;
+
+/** True when the UI runs from the hosted page (own origin) instead of the bundled null-origin HTML. */
+export const isHosted = location.origin !== 'null' && !location.protocol.startsWith('data') && location.protocol !== 'about:';
+
+export function send(msg: UiToPlugin) {
+  // From a hosted page Figma requires a pluginId and only figma.com may receive the message.
+  if (isHosted) parent.postMessage({ pluginMessage: msg, pluginId: __PLUGIN_ID__ }, 'https://www.figma.com');
+  else parent.postMessage({ pluginMessage: msg }, '*');
+}
 export function listen(l: Listener) { listeners.add(l); return () => { listeners.delete(l); }; }
 
 let nextId = 1;

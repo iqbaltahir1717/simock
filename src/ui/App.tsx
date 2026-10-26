@@ -9,6 +9,11 @@ import type { MockupInspection, SmartObjectCandidate, Issue } from '../core/psd/
 import type { MockupRenderer } from '../core/render/types';
 import { NativeRenderer, type FidelityReport } from '../core/render/native/compositor';
 import { PhotopeaRenderer } from '../core/render/photopea/photopea';
+import { IndexedDbLibrary } from '../core/storage/indexeddb';
+import type { LibraryItem } from '../core/storage/types';
+import { Library } from './Library';
+
+const library = new IndexedDbLibrary();
 
 type RendererKind = 'native' | 'photopea';
 interface Mockup { name: string; bytes: ArrayBuffer; hash: string }
@@ -33,6 +38,11 @@ export function App() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [previewScale, setPreviewScale] = useState(0);
   const [connected, setConnected] = useState(false);
+  const [libAvailable, setLibAvailable] = useState<boolean | null>(null);
+  const [libItems, setLibItems] = useState<LibraryItem[]>([]);
+
+  const refreshLibrary = useCallback(async () => { try { setLibItems(await library.list()); } catch (e) { setError(`Library: ${(e as Error).message}`); } }, []);
+  useEffect(() => { library.available().then((ok) => { setLibAvailable(ok); if (ok) refreshLibrary(); }); }, [refreshLibrary]);
 
   const rendererRef = useRef<MockupRenderer | null>(null);
   const previewHost = useRef<HTMLDivElement>(null);
@@ -76,10 +86,21 @@ export function App() {
       const idx = saved ? insp.candidates.findIndex((c) => (saved.target.layerId !== undefined && c.ref.layerId === saved.target.layerId) || c.ref.path.join('/') === saved.target.path.join('/')) : -1;
       setTargetIdx(Math.max(0, idx));
       setPlacement(saved && idx >= 0 ? saved.placement : DEFAULT_PLACEMENT);
+      if (await library.available()) {
+        const now = Date.now();
+        const existing = (await library.list()).find((x) => x.id === m.hash);
+        if (existing) await library.update(m.hash, { lastUsedAt: now });
+        else {
+          setBusy('Saving to library…');
+          const thumbnail = r instanceof NativeRenderer ? await thumbnailOf(r, insp.width) : undefined;
+          await library.put({ id: m.hash, name: m.name, size: m.bytes.byteLength, width: insp.width, height: insp.height, addedAt: now, lastUsedAt: now, thumbnail }, m.bytes);
+        }
+        refreshLibrary();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally { setBusy(null); }
-  }, [templates]);
+  }, [templates, refreshLibrary]);
 
   const onFile = useCallback(async (file: File) => {
     setError(null);
@@ -97,6 +118,22 @@ export function App() {
       setBusy(null);
     }
   }, [kind, openMockup]);
+
+  const openFromLibrary = useCallback(async (item: LibraryItem) => {
+    setError(null); setBusy('Loading from library…');
+    try {
+      const bytes = await library.getFile(item.id);
+      if (!bytes) throw new Error('The file is missing from the library. Add it again.');
+      const m = { name: item.name, bytes, hash: item.id };
+      setMockup(m);
+      await openMockup(m, kind);
+    } catch (e) { setError((e as Error).message); setBusy(null); }
+  }, [kind, openMockup]);
+
+  const removeFromLibrary = useCallback(async (item: LibraryItem) => {
+    await library.remove(item.id);
+    refreshLibrary();
+  }, [refreshLibrary]);
 
   // --- preview ---------------------------------------------------------------
   useEffect(() => {
@@ -210,9 +247,10 @@ export function App() {
 
         <section>
           <h2>Mockup</h2>
+          <Library available={libAvailable} items={libItems} activeId={mockup?.hash} hasTemplate={(id) => !!templates[id]} onOpen={openFromLibrary} onRemove={removeFromLibrary} />
           <label className="drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}>
             <input type="file" accept=".psd,.psb" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
-            {mockup ? <span><strong>{mockup.name}</strong><br /><span className="muted">{(mockup.bytes.byteLength / 1e6).toFixed(1)} MB{templates[mockup.hash] ? ' · saved template' : ''}</span></span> : <span>Drop a PSD or click to choose</span>}
+            {mockup ? <span><strong>{mockup.name}</strong><br /><span className="muted">{(mockup.bytes.byteLength / 1e6).toFixed(1)} MB{templates[mockup.hash] ? ' · saved template' : ''}</span></span> : <span>{libAvailable ? 'Add a PSD: drop or click' : 'Drop a PSD or click to choose'}</span>}
           </label>
           <div className="row">
             <label><input type="radio" checked={kind === 'native'} onChange={() => switchRenderer('native')} /> Built-in renderer</label>
@@ -289,4 +327,11 @@ export function App() {
       </aside>
     </div>
   );
+}
+
+async function thumbnailOf(r: NativeRenderer, docWidth: number): Promise<Blob | undefined> {
+  try {
+    const c = r.renderOriginal(Math.min(1, 320 / docWidth));
+    return await new Promise<Blob | undefined>((res) => c.toBlob((b) => res(b ?? undefined), 'image/png'));
+  } catch { return undefined; }
 }
