@@ -257,6 +257,12 @@ export class NativeRenderer implements MockupRenderer {
     return this.inspection;
   }
 
+  /** The mockup as-is (no replacement), for previews before a frame is selected. */
+  renderOriginal(scale: number): HTMLCanvasElement {
+    if (!this.compositor) throw new Error('Open a mockup first.');
+    return this.compositor.render(scale);
+  }
+
   /** Renders the untouched document to check how closely we reproduce Photoshop's own composite. */
   selfCheck(): FidelityReport | undefined {
     if (!this.psd?.canvas || !this.compositor) return undefined;

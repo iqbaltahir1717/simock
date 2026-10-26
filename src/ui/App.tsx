@@ -32,6 +32,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [previewScale, setPreviewScale] = useState(0);
+  const [connected, setConnected] = useState(false);
 
   const rendererRef = useRef<MockupRenderer | null>(null);
   const previewHost = useRef<HTMLDivElement>(null);
@@ -40,6 +41,7 @@ export function App() {
 
   // --- plugin messages -------------------------------------------------------
   useEffect(() => listen((m) => {
+    setConnected(true);
     if (m.type === 'selection') {
       setFrame(m.frame);
       if (!m.frame) setFrameReason(m.reason ?? 'Select a frame.');
@@ -99,9 +101,19 @@ export function App() {
   // --- preview ---------------------------------------------------------------
   useEffect(() => {
     const r = rendererRef.current;
-    if (!r || !inspection || !target || !design || busy) return;
+    if (!r || !inspection || !target || busy) return;
     const seq = ++renderSeq.current;
     const s = Math.min(1, PREVIEW_MAX / inspection.width);
+    if (!design) {
+      // No frame yet: show the mockup itself so the user sees it loaded.
+      if (r instanceof NativeRenderer && previewHost.current) {
+        const c = r.renderOriginal(s);
+        c.style.maxWidth = `${Math.round(inspection.width * s)}px`;
+        previewHost.current.replaceChildren(c);
+        setPreviewScale(s);
+      }
+      return;
+    }
     const t = setTimeout(async () => {
       try {
         const res = await r.render({ target: target.ref, design, placement, scale: kind === 'photopea' ? 1 : s });
@@ -193,7 +205,7 @@ export function App() {
               {previewUrl && <img src={previewUrl} alt="" />}
               <div><strong>{frame.name}</strong><br /><span className="muted">{Math.round(frame.width)} × {Math.round(frame.height)}</span></div>
             </div>
-          ) : <p className="muted">{frameReason}</p>}
+          ) : <p className="muted">{connected ? frameReason : 'Waiting for Figma… If this stays, close and reopen the plugin.'}</p>}
         </section>
 
         <section>
@@ -234,6 +246,7 @@ export function App() {
         <div className="preview" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => (drag.current = null)} onWheel={onWheel}>
           <div ref={previewHost} />
           {!inspection && <p className="muted center">{frame ? 'Choose a PSD mockup.' : 'Select a frame, then choose a PSD mockup.'}</p>}
+          {inspection && !frame && <p className="muted center">Select a frame in Figma to place it into this mockup.</p>}
         </div>
         <div ref={photopeaHost} className={kind === 'photopea' && photopeaConsent ? 'photopea' : 'photopea hidden'} />
         {busy && <div className="busy">{busy}</div>}

@@ -21,12 +21,15 @@ async function sendSelection() {
     post({ type: 'selection', frame: null, reason: sel.length === 0 ? 'Select a frame to place into a mockup.' : 'Select a single frame.' });
     return;
   }
-  const node = sel[0];
-  if (!SUPPORTED.has(node.type)) {
-    post({ type: 'selection', frame: null, reason: `${node.type.toLowerCase()} selected. Select a frame, component or instance.` });
+  // A layer inside a frame counts as its outermost frame on the page.
+  let node: BaseNode | null = sel[0];
+  let frameNode: SceneNode | null = null;
+  for (; node && node.type !== 'PAGE'; node = node.parent) if (SUPPORTED.has(node.type)) frameNode = node as SceneNode;
+  if (!frameNode) {
+    post({ type: 'selection', frame: null, reason: `${sel[0].type.toLowerCase()} selected. Select a frame, component or instance.` });
     return;
   }
-  const n = node as FrameNode | ComponentNode | InstanceNode;
+  const n = frameNode as FrameNode | ComponentNode | InstanceNode;
   try {
     const longest = Math.max(n.width, n.height);
     const preview = await n.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: Math.min(2, 480 / longest) } });

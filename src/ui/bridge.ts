@@ -4,11 +4,13 @@ import { parsePluginMessage, type PluginToUi, type UiToPlugin, type FrameInfo } 
 import type { DesignSource } from '../core/render/types';
 
 type Listener = (m: PluginToUi) => void;
+const FIGMA_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*figma\.com$/;
 const listeners = new Set<Listener>();
 
 window.addEventListener('message', (e: MessageEvent) => {
-  // Figma relays plugin messages from the parent window under `pluginMessage`.
-  if (e.source !== window.parent) return;
+  // Figma relays plugin messages under `pluginMessage`, from the parent window or a figma.com origin
+  // (the desktop app may deliver them through its own frame). Payloads are validated either way.
+  if (e.source !== window.parent && !FIGMA_ORIGIN.test(e.origin)) return;
   const msg = parsePluginMessage((e.data as { pluginMessage?: unknown } | null)?.pluginMessage);
   if (msg) listeners.forEach((l) => l(msg));
 });
